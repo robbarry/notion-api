@@ -1,0 +1,608 @@
+Jump to Content
+Notion API
+View my integrations
+Home
+Guides
+API Reference
+Changelog
+Examples
+
+Search
+⌘K
+Get started
+Notion API Overview
+Build your first integration
+Authorization
+Publishing to Notion’s Integration Gallery
+Upgrading to 2025-09-03
+Agent APIs
+Notion MCP
+
+Data APIs
+Working with page content
+Working with databases
+Working with comments
+Working with files and media
+
+Link previews
+Introduction
+Build a Link Preview integration
+Resources
+Best practices for handling API keys
+Example code
+Postman workspace
+Historical changelog
+
+Upgrading to 2025-09-03
+Learn how to upgrade your Notion API integration for better database support.
+
+Suggest Edits
+Overview
+In September 2025, Notion is launching several features to improve what you can do with databases. This includes support for multiple data sources under a single database, each of which can have a different set of properties (schemas). The database becomes a container for one or more data sources.
+
+Diagram of the new Notion API data model.  
+A database is a parent of one or more data sources, each of which parents zero or more pages.  
+Previously, databases could only have one data source, so the concepts were combined in the API until 2025
+Diagram of the new Notion API data model.
+A database is a parent of one or more data sources, each of which parents zero or more pages.
+Previously, databases could only have one data source, so the concepts were combined in the API until 2025
+
+To learn more about data sources in the Notion app and related features, visit our help center page.
+
+Understanding database URLs
+The concept of a database ID in the Notion app stays the same, and continues to be shown in the URL for a database followed by the ID of the specific view you're looking at. For example, in a link like https://notion.so/workspace/248104cd477e80fdb757e945d38000bd?v=148104cd477e80bb928f000ce197ddf2:
+
+248104cd-477e-80fd-b757-e945d38000bd is the database (container) ID.
+148104cd477e80bb928f000ce197ddf2 is the database view (managing views is not currently supported in the API).
+Note: The ID of the specific data source you're looking at isn't embedded in the URL, but will be listed in a separate dropdown menu.
+Introducing data source IDs, objects, and APIs
+Prior to this release, databases were limited to one data source, so the data source ID was hidden. Now that multiple data sources are supported, we need a way to identify the specific data source for a request. Starting from the 2025-09-03 API version, Notion is providing a new set of APIs under /v1/data_sources for managing each data source. Most of your integration's existing database operations should move to this set of APIs.
+
+The /v1/databases family of endpoints now refers to the database (container) as of 2025-09-03. To discover the data sources available for a database, the database object includes a data_sources array, each having an id and a name. The data source ID can then by used with the /v1/data_sources APIs.
+
+Notes on API versions
+As a reminder, API versioning is determined by providing a mandatory Notion-Version HTTP header with each API request. If you're using the TypeScript SDK, you might be configuring the version in one place where the Notion client is instantiated, or passing it explicitly for each request. You can follow the rest of this guide incrementally, upgrading each use of the API at a time at your convenience.
+
+We're also extending the concept of API versioning to integration webhooks to allow Notion to introduce backwards-incompatible changes without affecting your endpoint until you upgrade the API version in the integration settings. Ensure your webhook URL can handle events of both the old and new shape for a short period of time before making the upgrade.
+
+Behavior for existing integrations
+Integrations using the 2022-06-28 API version (or older) will continue to work with existing databases in Notion that have a single data source. Webhooks will also generally continue to be delivered without any changes to the format.
+
+However, if any Notion users create a second data source for a database in a workspace that's connected to your integration (starting on September 3, 2025), your database IDs are no longer precise enough for Notion to process the request.
+
+Until you follow this guide to upgrade, Notion responds to requests involving a database ID with multiple data sources with validation errors that look like:
+
+JSON Response
+
+{
+  "code": "validation_error",
+  "status": 400,
+  "message": "Databases with multiple data sources are not supported in this API version.",
+  "object": "error",
+  "additional_data": {
+    "error_type": "multiple_data_sources_for_database",
+    "database_id": "27a5d30a-1728-4a1e-a788-71341f22fb97",
+    "child_data_source_ids": [
+      "164b19c5-58e5-4a47-a3a9-c905d9519c65",
+      "25c104cd-477e-8047-836b-000b4aa4bc94"
+    ],
+    "minimum_api_version": "2025-09-03"
+  }
+}
+The additional_data in the response can help you identify the relevant data source IDs to use instead, as you upgrade your integration.
+
+API changes
+Step 1: Identify the data source IDs under a database
+👍
+Some API endpoints are unaffected and can be upgraded directly
+
+The 2025-09-03 API version upgrade does not make any backwards-incompatible changes from 2022-06-28 aside from the /v1/databases family of endpoints presented in this section, as well as Search results, and parameters for parent objects that accept database_ids.
+
+This means that you may directly upgrade the Notion-Version header your integration provides for all other usage of Notion APIs (e.g. Comments, Users, OAuth). Taking this step first and working incrementally can reduce the surfaces with which you need to exercise care while upgrading.
+
+For a breakdown on which APIs are and aren't affected, see this FAQ entry below.
+
+First, identify the parts of your system that process database IDs. These may include:
+
+Responses of list and search APIs, e.g. Search.
+Database IDs provided directly by users of your system, or hard-coded based on URLs in the Notion app.
+Events for integration webhooks (covered in the Webhook changes section below).
+For each entry point that uses database IDs, start your migration process by introducing an API call to the new Get Database API (GET /v1/databases/:database_id) endpoint to retrieve a list of child data_sources. For this new call, make sure to use the 2025-09-03 version in the Notion-Version header, even if the rest of your API calls haven't been updated yet.
+
+Get Database (JSON)
+Get Database (JS SDK)
+
+// GET /v1/databases/{database_id}
+// Notion-Version: "2025-09-03"
+// --- RETURNS -->
+{
+  "object": "database",
+  "id": "{database_id}",
+  "title": [/* ... */],
+  "parent": {
+    "type": "page_id",
+    "page_id": "255104cd-477e-808c-b279-d39ab803a7d2"
+  },
+  "is_inline": false,
+  "in_trash": false,
+  "created_time": "2025-08-07T10:11:07.504-07:00",
+  "last_edited_time": "2025-08-10T15:53:11.386-07:00",
+  "data_sources": [
+    {
+      "id": "{data_source_id}",
+      "name": "My Task Tracker"
+    }
+  ],
+  "icon": null,
+  "cover": null,
+  // ...
+}
+To get a data source ID in the Notion app, the settings menu for a database includes a "Copy data source ID" button under "Manage data sources":
+
+
+
+Having access to the data source ID (or rather, IDs, once Notion users start adding 2nd sources for their existing databases) for a database lets you continue onto the next few steps.
+
+Step 2: Provide data source IDs when creating pages or relations
+Some APIs that accept database_id in the body parameters now support providing a specific data_source_id instead. This works for any API version, meaning you can switch over at your convenience, before or after upgrading these API requests to use 2025-09-03:
+
+Creating a page with a database (now: data source) parent
+Defining a database relation property that points to another database (now: data source)
+Create page
+In the Create a page API, look for calls that look like this:
+
+Create Page (JSON)
+Create Page (TS SDK)
+
+// POST /v1/pages
+{
+  "parent": {
+    "type": "database_id",
+    "database_id": "..."
+  }
+}
+Change these to use data_source_id parents instead, using the code from Step 1 to get the ID of a database's data source:
+
+Create Page (JSON)
+Create Page (TS SDK)
+
+// POST /v1/pages
+{
+  "parent": {
+    "type": "data_source_id",
+    "data_source_id": "..."
+  }
+}
+Create or update database
+For database relation properties, the API will include both a database_id and data_source_id fields in the read path instead of just a database_id.
+
+In the write path, switch your integration to only provide the data_source_id in request objects.
+
+Relation property response example
+
+"Projects": {
+  "id": "~pex",
+  "name": "Projects",
+  "type": "relation",
+  "relation": {
+    "database_id": "6c4240a9-a3ce-413e-9fd0-8a51a4d0a49b",
+    "data_source_id": "a42a62ed-9b51-4b98-9dea-ea6d091bc508",
+    "dual_property": {
+      "synced_property_name": "Tasks",
+      "synced_property_id": "JU]K"
+    }
+  }
+}
+Note that database mentions in rich text will continue to reference the database, not the data source.
+
+Step 3: Migrate database endpoints to data sources
+The next step is to migrate each existing use of database APIs to their new data source equivalents, taking into account the differences between the old /v1/databases APIs and new /v1/data_sources APIs:
+
+Return very similar responses, but with object: "data_source", starting from 2025-09-03
+Accept a specific data source ID in query, body, and path parameters, not a database ID
+Exist under the /v1/data_sources namespace, starting from version 2025-09-03
+Require a custom API request with notion.request if you're using the TypeScript SDK, since we won't upgrade to SDK v5 until you get to Step 4 (below).
+The following APIs are affected. Each of them is covered by a sub-section below, with more specific Before vs. After explanations and code snippets:
+
+Retrieve a database
+Query a database
+Create a database
+Update a database
+Search
+Retrieve database
+Before (2022-06-28):
+
+Retrieving a database with multiple data sources fails with a validation_error message.
+For relation properties: across all API versions, both the database_id and data_source_id are now included in the response object.
+Retrieve Database (JSON)
+Query Database (TS SDK)
+
+// GET /v1/databases/:database_id
+{
+  // ...
+}
+After (2025-09-03):
+
+The Retrieve Database API is now repurposed to return a list of data_sources (each with an id and name, as described in Step 1).
+The Retrieve Data Source API is the new home for getting up-to-date information on the properties (schema) of each data source under a database.
+The object field is always "data_source" and the id is specific to the data source.
+The parent object now identifies the database_id immediate parent of the data source.
+The database's parent (i.e. the data source's grandparent) is included as a separate field, database_parent, on the data source response.
+Retrieve Data Source (JSON)
+Retrieve Data Source (TS SDK)
+
+// Get `data_source_id` from Step 1
+//
+// GET /v1/data_sources/:data_source_id
+{
+  "object": "data_source",
+  "id": "bc1211ca-e3f1-4939-ae34-5260b16f627c",
+  "created_time": "2021-07-08T23:50:00.000Z",
+  "last_edited_time": "2021-07-08T23:50:00.000Z",
+  "properties": {
+    "In stock": {
+      "id": "fk%5EY",
+      "name": "In stock",
+      "type": "checkbox",
+      "checkbox": {}
+    },
+    "Name": {
+      "id": "title",
+      "name": "Name",
+      "type": "title",
+      "title": {}
+    }
+  },
+  "parent": {
+    "type": "database_id",
+    "database_id": "6ee911d9-189c-4844-93e8-260c1438b6e4"
+  },
+  "database_parent": {
+    "type": "page_id",
+    "page_id": "98ad959b-2b6a-4774-80ee-00246fb0ea9b"
+  },
+  // ... (other properties omitted)
+}
+Query databases
+Before (2022-06-28):
+
+Query Database (JSON)
+Query Database (TS SDK)
+
+// PATCH /v1/databases/:database_id/query
+{
+  // ...
+}
+After (2025-09-03):
+
+When you update the API version, the path of this API changes, and now accepts a data source ID. With the TS SDK, you'll have to switch this to temporarily use a custom notion.request(...), until you upgrade to the next major version as part of Step 4.
+
+Query Data Source (JSON)
+Query Data Source (TS SDK)
+
+// PATCH /v1/data_sources/:data_source_id/query
+{
+  // ...
+}
+Create database
+Before (2022-06-28):
+
+In 2022-06-28, the Create Database API created a database and data source, along with its initial default view.
+For relation properties: across all API versions, both the database_id and data_source_id are now included in the response object.
+When providing relation properties in a request, you can either use database_id, data_source_id, or both, prior to making the API version upgrade.
+We recommend starting by switching your integration over to passing only a data_source_id for relation objects even in 2022-06-28 to precisely identify the data source to use for the relation and be ready for the 2025-09-03 behavior.
+Create Database (JSON)
+Create Database (TS SDK)
+
+// POST /v1/databases
+{
+  "parent": {"type": "page_id", "page_id": "..."},
+  "properties": {...},
+  // ...
+}
+After (2025-09-03):
+
+Continue to use the Create Database API even after upgrading, when you want to create both a database and its initial data source.
+properties for the initial data source you're creating now go under initial_data_source[properties] to better separate data source specific properties vs. ones that apply to the entire database.
+Other parameters apply to the database and continue to be specified at the top-level when creating a database (icon, cover, title).
+Only use the new Create Data Source API to add an additional data source (with a new set of properties) to an existing database.
+For relation properties: You can no longer provide a database_id. Notion continues to include both the database_id and data_source_id in the response for convenience, but the request object must only contain data_source_id.
+Create Database with initial data source (JSON)
+Create Database with initial data source (TS SDK)
+
+// POST /v1/databases
+{
+  "initial_data_source": {
+    "properties": {
+      // ... (Data source properties behave the same as database properties previously)
+    }
+  },
+  "parent": {"type": "workspace", "workspace": true} | {"type": "page_id", "page_id": "..."},
+  "title": [...],
+  "icon": {"type": "emoji", "emoji": "🚀"} | ...
+}
+Update database
+Before (2022-06-28):
+
+In 2022-06-28, the Update Database API was used to update attributes that related to both a database and its data source under the hood. For example, is_inline relates to the database, but properties defines the schema of a specific data source.
+For relation properties: across all API versions, both the database_id and data_source_id are now included in the response object.
+When providing relation properties in a request, you can either use database_id, data_source_id, or both, prior to making the API version upgrade.
+We recommend starting by switching your integration over to passing only a data_source_id for relation objects even in 2022-06-28 to precisely identify the data source to use for the relation and be ready for the 2025-09-03 behavior.
+Update Database (JSON)
+Update Database (TS SDK)
+
+// PATCH /v1/databases/:database_id
+{
+  "icon": {
+    "file_upload": {"id": "..."}
+  },
+  "properties": {
+    "Restocked (new)": {
+      "type": "checkbox",
+      "checkbox": {}
+    },
+    "In stock": null
+  },
+  "title": [{"text": {"content": "New Title"}}]
+}
+After (2025-09-03):
+
+Continue to use the Update Database API for attributes that apply to the database: parent, title, is_inline, icon, cover, in_trash.
+parent can be used to move an existing database to a different page, or (for public integrations), to the workspace level as a private page. This is a new feature in Notion's API.
+cover is not supported when is_inline is true.
+Switch over to the Update Data Source API to modify attributes that apply to a specific data source: properties (to change database schema), in_trash (to archive or unarchive a specific data source under a database), title.
+Changes to one data source's properties doesn't affect the schema for other data source, even if they share a common database.
+For relation properties: You can no longer provide a database_id. Notion continues to include both the database_id and data_source_id in the response for convenience, but the request object (to Update Data Source) must only contain data_source_id.
+Example for updating a data source's title and properties (adding one new property and removing another):
+
+Update Data Source (JSON)
+Update Data Source (TS SDK)
+
+// PATCH /v1/data_sources/:data_source_id
+{
+  "properties": {
+    "Restocked (new)": {
+      "type": "checkbox",
+      "checkbox": {}
+    },
+    "In stock": null
+  },
+  "title": [{"text": {"content": "New Title"}}]
+}
+Example for updating a database's parent (to move it), and switch it to be inline under the parent page:
+
+Update Data Source (JSON)
+Update Data Source (TS SDK)
+
+// PATCH /v1/databases/:database_id
+{
+  "parent": {"type": "page_id", "page_id": "NEW-PAGE-ID"},
+  "is_inline": true
+}
+Search
+Before (2022-06-28):
+
+If any Notion users add a second data source to a database, existing integrations will not see any search results for that database.
+After (2025-09-03):
+
+The Search API now only accepts filter["value"] = "page" | "data_source" instead of "page" | "database" when providing a filter["type"] = "object". Make sure to update the body parameters accordingly when upgrading to 2025-09-03.
+Similarly, the search API response returns data source IDs & objects.
+Aside from the IDs and object: "data_source" in these entries, the rest of the object shape of search is unchanged.
+Since results operate at the data source level, they continue to include properties (database schema) as before.
+If there are multiple data sources, all of them are included in the search response. Each of them will have a different data source ID.
+Step 4: Upgrade SDK (if applicable)
+📘
+Introducing @notionhq/client v5
+
+v5 of the SDK is now available:
+
+NPM link
+GitHub release link
+If you're using Notion's TypeScript SDK, and have completed all of the steps above to rework your usage of Notion's endpoints to fit the 2025-09-03 suite of endpoints manually, we recommend completing the migration by upgrading to the next major version release, v5.0.0, via your package.json file (or other version management toolchain.)
+
+The code snippets under Step 3 include the relevant syntax for the new notion.dataSources.* and notion.databases.* methods to assist in your upgrade. Go through each area where you used a manual notion.request(...) call, and switch it over to use one of the dedicated methods. Make sure you're setting the Notion version at initialization time to 2025-09-03.
+
+Note that the List databases (deprecated) endpoint, which has been removed since version 2022-02-22, is no longer included as of v5 of the SDK.
+
+Webhook changes
+Introducing webhook versioning
+When creating, editing, or viewing an integration webhook subscription in Notion's integration settings, there's a new option to set the API version that applies to events delivered to your webhook URL:
+
+Screenshot of the integration webhook "Edit subscription" form, with the new "API version" dropdown menu.
+Screenshot of the integration webhook "Edit subscription" form, with the new "API version" dropdown menu.
+
+For new webhook endpoints, we recommend starting with the most recent version. For existing webhook subscriptions, you'll need to carefully introduce support for the added and changed webhook types. Ensure your webhook handler can accept both old & new event payloads before using the "Edit subscription" form to upgrade to the 2025-09-03 API version.
+
+After you've tested your webhook endpoint to ensure the new events are being handled correctly for some period of time (for example, a few hours), you can clean up your system to only expect events with the updated shape. Read on below for specific details on what's changed in 2025-09-03.
+
+New and modified event types
+New data_source specific events have been added, and the corresponding existing database events now apply at the database level.
+
+Here's a breakdown of how event types change names or behavior when upgraded to 2025-09-03:
+
+Old Name	New Name	Description
+database.content_updated	data_source.content_updated	Data source's content updates
+database.schema_updated	data_source.schema_updated	Data source's schema updates
+N/A (new event)	data_source.created	New data source is added to an existing database
+
+entity.type is "data_source"
+N/A (new event)	data_source.moved	Data source is moved to a different database
+
+entity.type is "data_source"
+N/A (new event)	data_source.deleted	Data source is deleted from a database
+
+entity.type is "data_source"
+N/A (new event)	data_source.undeleted	Data source is undeleted
+
+entity.type is "data_source"
+database.created	(unchanged)	New database is created with a default data source
+database.moved	(unchanged)	Database is moved to different parent (i.e. page)
+database.deleted	(unchanged)	Database is deleted from its parent
+database.undeleted	(unchanged)	Database is undeleted
+Updates to parent data
+With the 2025-09-03 version, all webhooks for entities that can have data sources as parents now include a new field data_source_id under the data.parent object.
+
+This applies to:
+
+Page events (page.*)
+Data source events (the data_source.* ones listed above)
+Database events (database.*), but only in rarer cases where databases are directly parented by another database (i.e. wikis)
+For example, when a Notion user creates a page within a data source using the Notion app, the resulting page.created event has the following example shape (note the new data.parent.data_source_id field):
+
+JSON
+
+{
+  "id": "367cba44-b6f3-4c92-81e7-6a2e9659efd4",
+  "timestamp": "2024-12-05T23:55:34.285Z",
+  "workspace_id": "13950b26-c203-4f3b-b97d-93ec06319565",
+  "workspace_name": "Quantify Labs",
+  "subscription_id": "29d75c0d-5546-4414-8459-7b7a92f1fc4b",
+  "integration_id": "0ef2e755-4912-8096-91c1-00376a88a5ca",
+  "type": "page.created",
+  "authors": [
+    {
+      "id": "c7c11cca-1d73-471d-9b6e-bdef51470190",
+      "type": "person"
+    }
+  ],
+  "accessible_by": [
+    {
+      "id": "556a1abf-4f08-40c6-878a-75890d2a88ba",
+      "type": "person"
+    },
+    {
+      "id": "1edc05f6-2702-81b5-8408-00279347f034",
+      "type": "bot"
+    }
+  ],
+  "attempt_number": 1,
+  "entity": {
+    "id": "153104cd-477e-809d-8dc4-ff2d96ae3090",
+    "type": "page"
+  },
+  "data": {
+    "parent": {
+      "id": "36cc9195-760f-4fff-a67e-3a46c559b176",
+      "type": "database",
+      "data_source_id": "98024f3c-b1d3-4aec-a301-f01e0dacf023"
+    }
+  }
+}
+For compatibility with multi-source databases, use the provided parent.data_source_id to distinguish which data source the page lives in.
+
+Frequently asked questions
+When can I start using the 2025-09-03 version?
+The API version is already available to use for Notion API requests as of late August. We recommend starting the upgrade process detailed above at your earliest convenience if your integration is affected by the changes.
+
+If your workspace is connected to any public integrations (rather than an internal bot owned by you or your business), they may not have upgraded yet. If you rely on important workflows or automations, contact the third-party for any questions or issues regarding their timeline & support for databases with multiple sources.
+
+Can I see an example of how parent & child relationships work?
+Here's a diagram of a scenario where a workspace has a top-level page that has a database with two data sources:
+
+Diagram showing a page in a workspace with a database child. The database has two data sources, each of which have two rows (child pages).
+Diagram showing a page in a workspace with a database child. The database has two data sources, each of which have two rows (child pages).
+
+Going from top to bottom, here's a simplified run-through of how the API objects connect to one another:
+
+Parent Page:
+parent is {"type": "workspace", "workspace": "true"}
+No changes to how the page's Block children work.
+Database:
+parent is {"type": "page_id", "page_id": "<id of Parent Page>"}
+data_sources is [{"id": "...", "name": "Data Source"}, {"id": "...", "name": "Data Source"}]
+Data Source:
+parent is {"type": "database_id", "database_id": "<id of Database>"}
+database_parent is {"type": "page_id", "page_id": "<id of Parent Page>"}
+Page:
+parent is {"type": "data_source_id", "data_source_id": "<id of Data Source>"}
+No changes to how the page's Block children work.
+How do permissions work for data sources?
+User and bot permissions are managed at the database level, not per data source. This means that the level of access a Notion user or integration has (or doesn't have) is the same across all data sources in a database.
+
+How do these changes work with wikis?
+Unlike other databases, wikis won't support multiple data sources as part of the September 2025 launch. For this reason, and due to limited support in Notion's API, we recommend using alternative ways to structure your knowledge in Notion that don't involve wikis.
+
+However, for completeness, here's a diagram of how parent/child relationships work in an example wiki scenario:
+
+Diagram showing single-source databases nested under one another as part of a wiki structure.
+Diagram showing single-source databases nested under one another as part of a wiki structure.
+
+Can you summarize which APIs are & aren't affected?
+Each family of APIs is summarized in the table below.
+Ones that are affected are marked in bold in the first column, and the 2025-09-03 changes are outlined in the second column.
+Ones that aren't affected are listed as "None" (some of which have explanatory comments as to why they aren't affected.)
+Endpoints	Changes
+Authentication	None
+Blocks	None
+Pages	parent is a data_source_id instead of a database_id
+Databases	Modified to act on the entire database (container) instead of its data sources via Create, Retrieve, or Update; see migration guide details above
+
+Creating a database and its initial data source works the same way, but properties must be nested under initial_data_source as of 2025-09-03
+Data Sources	New set of APIs for operating on individual data sources under a database via Create, Update, Query, or Retrieve
+Comments	None (comments can only have blocks or pages as parents, not databases or data sources, so they aren't affected)
+File Uploads	None
+Search	Filter value parameter refers to "data_source" instead of "database"; response results include each "data_source" object instead of "database" objects
+Users	None
+How long will the 2022-06-28 version continue to work?
+We don't currently have any process for halting support of old Notion API versions. If we introduce a "minimum versioning" program in the future, we'll communicate this with all affected users with ample notice period (e.g. 6 months) and start with versions that came before 2022-06-28.
+
+However, even though API integrations continue to work, we recommend upgrading to 2025-09-03 as soon as possible. That way, your system is ready for in-app creation of data sources, gains new functionality when working with databases, and you can help Notion's support teams better handle any questions or requests you have by making sure you're up-to-date.
+
+Why is this the first version upgrade since 2022?
+We aim to improve functionality in our API through backwards-compatible features first and foremost. We've shipped several changes since 2022, including the File Upload API, but generally aim to avoid having large sets of users have to go through a detailed upgrade progress when possible.
+
+With these new changes to the Notion app, we want our integration partners, developer community, ambassadors, champions, and everyone else making great tools to unlock the power of multiple-source database containers. This involves rethinking what a "database ID" in the API can do and repurposing API endpoints, necessitating the 2025-09-03 version release.
+
+Updated 4 days ago
+
+What’s Next
+Continue to stay tuned to future updates in the API and TypeScript SDK, discover example projects, and learn more about integration webhooks:
+
+Changes by version
+Webhooks
+Example code
+Typed API SDK for JS
+Did this page help you?
+Table of Contents
+Overview
+Understanding database URLs
+Introducing data source IDs, objects, and APIs
+Notes on API versions
+Behavior for existing integrations
+API changes
+Step 1: Identify the data source IDs under a database
+Step 2: Provide data source IDs when creating pages or relations
+Step 3: Migrate database endpoints to data sources
+Step 4: Upgrade SDK (if applicable)
+Webhook changes
+Introducing webhook versioning
+New and modified event types
+Updates to parent data
+Frequently asked questions
+When can I start using the 2025-09-03 version?
+Can I see an example of how parent & child relationships work?
+How do permissions work for data sources?
+How do these changes work with wikis?
+Can you summarize which APIs are & aren't affected?
+How long will the 2022-06-28 version continue to work?
+Why is this the first version upgrade since 2022?
+The all-in-one workspace for your notes, tasks, wikis, and databases.
+@NotionAPI
+©2025 Notion Labs, Inc.
+Terms & Privacy
+Developers
+Guides
+API reference
+My integrations
+Developer terms
+Notion
+Product
+Teams
+Enterprise
+Blog
+Careers
+Community
+Slack
+Stack Overflow
+Twitter
+
