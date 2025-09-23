@@ -56,7 +56,7 @@ class NotionClient:
             max_retries: Maximum number of retry attempts
             backoff_factor: Backoff multiplier between retries
         """
-        self.auth_token = auth_token or os.getenv("NOTION_TOKEN") or os.getenv("NOTION_API_TOKEN")
+        self.auth_token = auth_token or os.getenv("NOTION_API_TOKEN") or os.getenv("NOTION_TOKEN")
         if not self.auth_token:
             raise AuthenticationError(
                 "No auth token provided. Pass auth_token or set NOTION_API_TOKEN env var"

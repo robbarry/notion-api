@@ -21,9 +21,23 @@ class TestNotionClient:
 
     def test_init_with_env_token(self):
         """Test client initialization with environment variable."""
-        with patch.dict(os.environ, {"NOTION_API_TOKEN": "env-token-456"}):
+        with patch.dict(os.environ, {"NOTION_API_TOKEN": "env-token-456"}, clear=True):
             client = NotionClient()
             assert client.auth_token == "env-token-456"
+
+    def test_token_precedence(self):
+        """Test that NOTION_API_TOKEN takes precedence over NOTION_TOKEN."""
+        with patch.dict(os.environ, {
+            "NOTION_TOKEN": "notion-token",
+            "NOTION_API_TOKEN": "api-token"
+        }, clear=True):
+            client = NotionClient()
+            assert client.auth_token == "api-token"
+
+        # Test fallback to NOTION_TOKEN when NOTION_API_TOKEN is not set
+        with patch.dict(os.environ, {"NOTION_TOKEN": "notion-token"}, clear=True):
+            client = NotionClient()
+            assert client.auth_token == "notion-token"
 
     def test_init_without_token_raises_error(self):
         """Test that missing token raises AuthenticationError."""
@@ -114,7 +128,10 @@ class TestNotionClient:
         first_response = Mock()
         first_response.status_code = 200
         first_response.json.return_value = {
-            "results": [{"id": "db1"}, {"id": "db2"}],
+            "results": [
+                {"id": "db1", "object": "database"},
+                {"id": "db2", "object": "database"}
+            ],
             "has_more": True,
             "next_cursor": "cursor-123"
         }
@@ -123,7 +140,7 @@ class TestNotionClient:
         second_response = Mock()
         second_response.status_code = 200
         second_response.json.return_value = {
-            "results": [{"id": "db3"}],
+            "results": [{"id": "db3", "object": "database"}],
             "has_more": False,
             "next_cursor": None
         }
