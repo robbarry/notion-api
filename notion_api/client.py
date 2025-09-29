@@ -33,11 +33,11 @@ class AuthenticationError(NotionAPIError):
 class NotionClient:
     """Main Notion API client handling authentication and HTTP operations.
 
-    Uses Notion API version 2022-06-28 (current stable version).
+    Supports Notion API version 2025-09-03 with multiple data sources per database.
     """
 
     BASE_URL = "https://api.notion.com"
-    API_VERSION = "2022-06-28"  # Current stable Notion API version
+    API_VERSION = "2025-09-03"
 
     def __init__(
         self,

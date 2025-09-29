@@ -51,7 +51,7 @@ class TestNotionClient:
         headers = client._get_headers()
 
         assert headers["Authorization"] == "Bearer test-token"
-        assert headers["Notion-Version"] == "2022-06-28"
+        assert headers["Notion-Version"] == "2025-09-03"
         assert headers["Content-Type"] == "application/json"
 
     @patch('notion_api.client.requests.Session')
