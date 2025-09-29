@@ -17,7 +17,8 @@ def test_real_api():
     if databases:
         print(f"✅ Found {len(databases)} database(s)")
         for db in databases[:3]:  # Show first 3
-            db_name = db.get('title', [{}])[0].get('text', {}).get('content', 'Untitled')
+            title_arr = db.get('title', [])
+            db_name = title_arr[0].get('plain_text', 'Untitled') if title_arr else 'Untitled'
             print(f"   - {db_name} (ID: {db['id'][:8]}...)")
     else:
         print("⚠️  No databases found (this is OK if the integration has no access yet)")
