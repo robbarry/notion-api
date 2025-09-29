@@ -156,16 +156,22 @@ class TestNotionClient:
 
     @patch('notion_api.client.requests.Session')
     def test_query_database(self, mock_session_class):
-        """Test query_database method."""
+        """Test query_database method with data sources."""
         mock_session = MagicMock()
         mock_session_class.return_value = mock_session
 
-        # Mock get_database response
+        # Mock get_database response with data sources (2025-09-03 API)
         db_response = Mock()
         db_response.status_code = 200
-        db_response.json.return_value = {"object": "database", "id": "db-123"}
+        db_response.json.return_value = {
+            "object": "database",
+            "id": "db-123",
+            "data_sources": [
+                {"id": "ds-456", "name": "Main Source"}
+            ]
+        }
 
-        # Mock query response
+        # Mock query response for data source
         query_response = Mock()
         query_response.status_code = 200
         query_response.json.return_value = {
