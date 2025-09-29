@@ -34,6 +34,7 @@ class NotionClient:
     """Main Notion API client handling authentication and HTTP operations.
 
     Supports Notion API version 2025-09-03 with multiple data sources per database.
+    Automatically handles the new data source architecture transparently.
     """
 
     BASE_URL = "https://api.notion.com"
@@ -241,6 +242,15 @@ class NotionClient:
         # First, get the database to check for data sources
         database = self.get_database(database_id)
 
+        # Get data sources from the database (2025-09-03 API)
+        data_sources = database.get('data_sources', [])
+
+        # If no data sources, the database might be legacy or empty
+        if not data_sources:
+            # Try the old endpoint for backwards compatibility
+            # This will fail with 2025-09-03 but helps during migration
+            return []
+
         # Build query payload
         payload = {"page_size": page_size}
         if filter:
@@ -248,21 +258,69 @@ class NotionClient:
         if sorts:
             payload["sorts"] = sorts
 
-        # Query the database (API handles data sources internally in 2025-09-03)
+        # Query all data sources and merge results
         all_results = []
-        has_more = True
-        next_cursor = None
 
-        while has_more:
-            if next_cursor:
-                payload["start_cursor"] = next_cursor
+        for data_source in data_sources:
+            ds_id = data_source['id']
+            has_more = True
+            next_cursor = None
 
-            response = self.post(f"/v1/databases/{database_id}/query", data=payload)
-            all_results.extend(response.get("results", []))
-            has_more = response.get("has_more", False)
-            next_cursor = response.get("next_cursor")
+            while has_more:
+                if next_cursor:
+                    payload["start_cursor"] = next_cursor
+
+                response = self.post(f"/v1/data_sources/{ds_id}/query", data=payload)
+                all_results.extend(response.get("results", []))
+                has_more = response.get("has_more", False)
+                next_cursor = response.get("next_cursor")
+
+                # Reset cursor for next data source
+                if "start_cursor" in payload:
+                    del payload["start_cursor"]
 
         return all_results
+
+    def get_data_source(self, data_source_id: str) -> Dict[str, Any]:
+        """Get a specific data source by ID.
+
+        Args:
+            data_source_id: The data source UUID
+
+        Returns:
+            Data source object
+        """
+        return self.get(f"/v1/data_sources/{data_source_id}")
+
+    def query_data_source(
+        self,
+        data_source_id: str,
+        filter: Optional[Dict[str, Any]] = None,
+        sorts: Optional[List[Dict[str, Any]]] = None,
+        page_size: int = 100,
+        start_cursor: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Query a specific data source directly.
+
+        Args:
+            data_source_id: The data source UUID
+            filter: Filter conditions for the query
+            sorts: Sort parameters for results
+            page_size: Number of results per page
+            start_cursor: Pagination cursor
+
+        Returns:
+            Query response with results and pagination info
+        """
+        payload = {"page_size": page_size}
+        if filter:
+            payload["filter"] = filter
+        if sorts:
+            payload["sorts"] = sorts
+        if start_cursor:
+            payload["start_cursor"] = start_cursor
+
+        return self.post(f"/v1/data_sources/{data_source_id}/query", data=payload)
 
     def get_page(self, page_id: str) -> Dict[str, Any]:
         """Get a specific page by ID.
@@ -279,18 +337,38 @@ class NotionClient:
         self,
         parent: Dict[str, str],
         properties: Dict[str, Any],
-        children: Optional[List[Dict[str, Any]]] = None
+        children: Optional[List[Dict[str, Any]]] = None,
+        auto_convert_database_parent: bool = True
     ) -> Dict[str, Any]:
         """Create a new page.
 
         Args:
-            parent: Parent database or page reference (e.g., {"database_id": "..."})
+            parent: Parent reference. Can be:
+                    - {"data_source_id": "..."} for database pages (preferred in 2025-09-03)
+                    - {"database_id": "..."} for database pages (auto-converted if enabled)
+                    - {"page_id": "..."} for sub-pages
             properties: Page properties matching the parent schema
             children: Optional list of block children for the page
+            auto_convert_database_parent: If True, automatically converts database_id
+                                         parents to data_source_id (default: True)
 
         Returns:
             Created page object
         """
+        # Auto-convert database_id to data_source_id for 2025-09-03 compatibility
+        if auto_convert_database_parent and parent.get("type") == "database_id":
+            database_id = parent.get("database_id")
+            if database_id:
+                # Get the database to find its data source
+                database = self.get_database(database_id)
+                data_sources = database.get("data_sources", [])
+                if data_sources:
+                    # Use the first data source by default
+                    parent = {
+                        "type": "data_source_id",
+                        "data_source_id": data_sources[0]["id"]
+                    }
+
         payload = {
             "parent": parent,
             "properties": properties

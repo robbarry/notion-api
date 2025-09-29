@@ -9,15 +9,25 @@ This is a unified Notion API integration layer for three applications:
 
 ## Current State
 
-- **Phase**: Initial development (scaffolding only)
-- **Implementation**: No functional code yet, just project structure
-- **Roadmap**: Defined in GitHub issues #1-7
+- **Phase**: Core functionality implemented
+- **Implementation**:
+  - ✅ Basic Notion API client with authentication (Issue #1)
+  - ✅ Full support for 2025-09-03 data sources architecture
+  - ✅ Database and data source query operations
+  - ✅ Page creation with auto-conversion to data_source_id
+  - ✅ SignalBot2 requirements documented (Issue #2)
+- **Roadmap**: Issues #3-7 pending (Storyboard/DataHQ requirements, unified interface)
 
 ## Technical Requirements
 
 ### API Version
-- **Target**: Notion API version 2025-09-03
-- **Key Change**: Multiple data sources per database (database is now a container)
+- **Current Version**: Notion API version 2025-09-03 (as of September 2025)
+- **IMPORTANT**: This is the CURRENT version, not a future version!
+- **Breaking Change**: Databases are now containers for data sources
+- **Key Endpoints Changed**:
+  - ❌ `/v1/databases/{id}/query` - NO LONGER EXISTS
+  - ✅ `/v1/data_sources/{id}/query` - Use this instead
+  - ✅ `/v1/databases/{id}` - Returns database with `data_sources` array
 - **Backwards Compatibility**: Must support legacy single-data-source databases
 
 ### Architecture Goals
@@ -56,19 +66,43 @@ This is a unified Notion API integration layer for three applications:
 
 ## Implementation Notes
 
-### Database vs Data Source
+### Database vs Data Source Architecture (CRITICAL)
+
+⚠️ **Major API Change in 2025-09-03**: Databases are now containers for data sources!
+
 ```python
 # Old model (pre-2025-09-03):
 # database_id directly contains pages
+# Query: POST /v1/databases/{database_id}/query
 
-# New model (2025-09-03+):
+# New model (2025-09-03 - CURRENT):
 # database_id → data_source_ids → pages
-# Must handle both transparently
+# Query: POST /v1/data_sources/{data_source_id}/query
+
+# How to migrate:
+# 1. GET /v1/databases/{database_id} to get data_sources array
+# 2. Use data_source_id from that array for queries
+# 3. When creating pages, use {"data_source_id": "..."} parent, not {"database_id": "..."}
+```
+
+### Working with Data Sources
+
+```python
+# CORRECT way to query a database in 2025-09-03:
+database = client.get_database(database_id)
+data_sources = database.get('data_sources', [])
+if data_sources:
+    ds_id = data_sources[0]['id']
+    results = client.query_data_source(ds_id, filter={...})
+
+# WRONG - this endpoint doesn't exist anymore:
+# results = client.post(f"/v1/databases/{database_id}/query")  # ❌ Returns 400
 ```
 
 ### Key API Endpoints
-- `/v1/databases/*` - Database container operations
-- `/v1/data_sources/*` - Data source operations (NEW)
+- `/v1/databases/{id}` - Get database metadata (returns data_sources array)
+- `/v1/data_sources/{id}` - Get data source metadata
+- `/v1/data_sources/{id}/query` - Query pages in a data source (NOT /v1/databases/{id}/query!)
 - `/v1/pages/*` - Page operations
 - `/v1/blocks/*` - Block operations
 
@@ -135,11 +169,13 @@ notion-api/
 
 ## Notes for AI Assistants
 
-1. **Always check the current API version** - We're using 2025-09-03, not older versions
-2. **Data sources are critical** - Don't ignore the new data source architecture
-3. **Test with both models** - Ensure code works with single and multiple data sources
-4. **Document decisions** - Use `clog` to document important decisions and findings
-5. **Check existing code** - Before implementing, check if similar functionality exists
+1. **API Version 2025-09-03 is CURRENT** - This is the live version as of September 2025, not a future version!
+2. **NEVER use `/v1/databases/{id}/query`** - This endpoint was removed in 2025-09-03. Use `/v1/data_sources/{id}/query` instead
+3. **Data sources are MANDATORY** - Every database operation must go through data sources now
+4. **Test with real API** - Don't assume old patterns work. The API has breaking changes
+5. **Check the data_sources array** - When you GET a database, always check its data_sources before querying
+6. **Document decisions** - Use `clog` to document important decisions and findings
+7. **Verify with documentation** - When in doubt, check [Notion API Docs](https://developers.notion.com/)
 
 ## Quick Commands
 
