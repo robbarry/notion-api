@@ -377,3 +377,46 @@ class NotionClient:
             payload["children"] = children
 
         return self.post("/v1/pages", data=payload)
+
+    def get_block_children(
+        self,
+        block_id: str,
+        page_size: int = 100,
+        start_cursor: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get all child blocks of a block (or page).
+
+        Args:
+            block_id: The block or page UUID
+            page_size: Number of results per page
+            start_cursor: Pagination cursor
+
+        Returns:
+            List of all child blocks
+        """
+        all_blocks = []
+        has_more = True
+        cursor = start_cursor
+
+        while has_more:
+            params = {"page_size": page_size}
+            if cursor:
+                params["start_cursor"] = cursor
+
+            response = self.get(f"/v1/blocks/{block_id}/children", params=params)
+            all_blocks.extend(response.get("results", []))
+            has_more = response.get("has_more", False)
+            cursor = response.get("next_cursor")
+
+        return all_blocks
+
+    def get_block(self, block_id: str) -> Dict[str, Any]:
+        """Get a specific block by ID.
+
+        Args:
+            block_id: The block UUID
+
+        Returns:
+            Block object
+        """
+        return self.get(f"/v1/blocks/{block_id}")
